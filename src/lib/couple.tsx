@@ -1,13 +1,22 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { router } from 'expo-router';
+import { createContext, useContext, useEffect, useEffectEvent, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
+import type { ColorName, FontName } from '@/theme';
 import { askCoach } from './coach';
 
 export type PartnerId = 'a' | 'b';
-export type Entry = { id: string; author: PartnerId; text: string; createdAt: number };
+export type Entry = { id: string; author: PartnerId; title: string; text: string; mood?: string; createdAt: number };
+export type EntryPatch = Partial<Pick<Entry, 'title' | 'text' | 'mood'>>;
 export type ChatMessage = { id: string; from: 'me' | 'coach'; text: string };
 
 export const partnerIds: PartnerId[] = ['a', 'b'];
-const partners: Record<PartnerId, string> = { a: 'Alex', b: 'Sam' }; // placeholder names
-const other = (id: PartnerId): PartnerId => (id === 'a' ? 'b' : 'a');
+// Preferences, not writing: each partner's name and color also show on the lock screen.
+export type Settings = { name: string; color: ColorName; font: FontName; dark: boolean; haptics: boolean; autoLock: boolean };
+const defaults: Record<PartnerId, Settings> = {
+  a: { name: 'Alex', color: 'teal', font: 'system', dark: false, haptics: true, autoLock: true },
+  b: { name: 'Sam', color: 'violet', font: 'system', dark: false, haptics: true, autoLock: true },
+};
+export const other = (id: PartnerId): PartnerId => (id === 'a' ? 'b' : 'a');
 
 let nextId = 0;
 const newId = () => String(nextId++);
@@ -21,6 +30,11 @@ function useCoupleState() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [chats, setChats] = useState<Record<PartnerId, ChatMessage[]>>({ a: [], b: [] });
   const [thinkingFor, setThinkingFor] = useState<PartnerId | null>(null);
+  const [settings, setSettings] = useState(defaults);
+  const partners: Record<PartnerId, string> = {
+    a: settings.a.name.trim() || defaults.a.name,
+    b: settings.b.name.trim() || defaults.b.name,
+  };
 
   function unlock(id: PartnerId, pin: string) {
     if (pins[id] === undefined) setPins((p) => ({ ...p, [id]: pin }));
@@ -29,14 +43,47 @@ function useCoupleState() {
     return true;
   }
 
+  function changePin(oldPin: string, newPin: string) {
+    if (!current || pins[current] !== oldPin) return false;
+    setPins((p) => ({ ...p, [current]: newPin }));
+    return true;
+  }
+
   function lock(next: PartnerId | null = null) {
+    // Close any open note or PIN screen, so nothing of this partner's stays mounted under the lock screen.
+    if (router.canDismiss()) router.dismissAll();
     setCurrent(null);
     setSelected(next);
   }
 
-  function addEntry(text: string) {
+  const onBackground = useEffectEvent(() => {
+    if (current && settings[current].autoLock) lock(current);
+  });
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') onBackground();
+    });
+    return () => sub.remove();
+  }, []);
+
+  function updateSettings(patch: Partial<Settings>) {
+    if (current) setSettings((s) => ({ ...s, [current]: { ...s[current], ...patch } }));
+  }
+
+  function addEntry(patch: EntryPatch) {
     if (!current) return;
-    setEntries((e) => [{ id: newId(), author: current, text, createdAt: Date.now() }, ...e]);
+    const id = newId();
+    setEntries((e) => [{ id, author: current, title: '', text: '', createdAt: Date.now(), ...patch }, ...e]);
+    return id;
+  }
+
+  // Both check the author too, so an id can never reach the other partner's entry.
+  function updateEntry(id: string, patch: EntryPatch) {
+    setEntries((es) => es.map((e) => (e.id === id && e.author === current ? { ...e, ...patch } : e)));
+  }
+
+  function deleteEntry(id: string) {
+    setEntries((es) => es.filter((e) => !(e.id === id && e.author === current)));
   }
 
   async function sendToCoach(text: string) {
@@ -60,12 +107,18 @@ function useCoupleState() {
     selected,
     select: setSelected,
     hasPin: (id: PartnerId) => pins[id] !== undefined,
+    checkPin: (pin: string) => current !== null && pins[current] === pin,
+    changePin,
     unlock,
     lock,
+    settings,
+    updateSettings,
     myEntries: current ? entries.filter((e) => e.author === current) : [],
     myChat: current ? chats[current] : [],
     thinking: current !== null && thinkingFor === current,
     addEntry,
+    updateEntry,
+    deleteEntry,
     sendToCoach,
   };
 }

@@ -1,38 +1,57 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { partnerIds, useCouple } from '@/lib/couple';
-import { colors } from '@/theme';
+import type { ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { IconButton } from '@/components/Icon';
+import { useCouple, type PartnerId } from '@/lib/couple';
+import { themed, useColorOf, useFont } from '@/theme';
 
-export function ProfileBar() {
-  const { partners, current, lock } = useCouple();
+export function Avatar({ id, size = 32, ring = false }: { id: PartnerId; size?: number; ring?: boolean }) {
+  const styles = useStyles();
+  const { partners } = useCouple();
+  const color = useColorOf()(id);
   return (
-    <View style={styles.bar}>
-      {partnerIds.map((id) => {
-        const active = current === id;
-        return (
-          <Pressable
-            key={id}
-            onPress={() => !active && lock(id)}
-            style={[styles.chip, active && styles.chipActive]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityHint={active ? undefined : `Locks the app and asks for ${partners[id]}'s PIN`}>
-            <Text style={[styles.name, active && styles.nameActive]}>{partners[id]}</Text>
-          </Pressable>
-        );
-      })}
-      <Pressable onPress={() => lock()} style={styles.lock} accessibilityRole="button">
-        <Text style={styles.lockText}>Lock</Text>
-      </Pressable>
+    <View style={[styles.ring, { borderRadius: size, borderColor: ring ? color : 'transparent' }]}>
+      <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }]}>
+        <Text style={[styles.initial, { fontSize: size * 0.42 }]}>{partners[id][0]}</Text>
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
-  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  name: { color: colors.ink, fontSize: 15, fontWeight: '500' },
-  nameActive: { color: '#fff' },
-  lock: { marginLeft: 'auto', padding: 8 },
-  lockText: { color: colors.muted, fontSize: 15 },
-});
+// Screen header: who's unlocked and a lock button, then the screen title with an optional action on the right.
+export function ProfileBar({ title, children }: { title: string; children?: ReactNode }) {
+  const styles = useStyles();
+  const { partners, current, lock } = useCouple();
+  const fontFamily = useFont();
+  if (!current) return null;
+  return (
+    <View style={styles.bar}>
+      <View style={styles.top}>
+        <Avatar id={current} />
+        <Text style={styles.name}>{partners[current]}</Text>
+        <View style={styles.actions}>
+          <IconButton icon="lock" variant="soft" size={36} label="Lock" onPress={() => lock()} />
+        </View>
+      </View>
+      <View style={styles.titleRow}>
+        <Text style={[styles.title, { fontFamily }]} accessibilityRole="header">
+          {title}
+        </Text>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+const useStyles = themed((c) =>
+  StyleSheet.create({
+    bar: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 10, gap: 14 },
+    top: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    ring: { borderWidth: 2, padding: 2 },
+    avatar: { alignItems: 'center', justifyContent: 'center' },
+    initial: { color: '#fff', fontWeight: '600' },
+    name: { fontSize: 16, fontWeight: '600', color: c.ink },
+    actions: { flexDirection: 'row', gap: 8, marginLeft: 'auto' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    title: { fontSize: 34, fontWeight: '700', letterSpacing: -0.8, color: c.ink },
+  }),
+);
